@@ -60,16 +60,22 @@ Il nome viene dal latino *repertum*, «ciò che è stato trovato»: in italiano,
 Non si installa niente e non si collega a internet. Le impronte dei file scaricati sono in
 `SHA256SUMS.txt`, accanto a ogni rilascio.
 
-<details>
+<details open>
 <summary><b>Il primo avvio</b>: gli avvisi di Windows e macOS</summary>
 
 Repertum non è firmato con un certificato commerciale, quindi la prima volta il sistema avvisa.
 
 - **Windows**: «Windows ha protetto il PC» → *Ulteriori informazioni* → *Esegui comunque*.
   Poi chiede di essere eseguito come amministratore: serve per attivare il blocco della scrittura.
-- **macOS**: tasto destro su `Repertum.app` → *Apri* → *Apri*. Sulle versioni più recenti:
-  *Impostazioni di Sistema* → *Privacy e sicurezza* → *Apri comunque*. La prima volta che legge
-  una chiavetta, macOS può chiedere il permesso di accedere ai volumi rimovibili: va concesso.
+- **macOS 15 e successivi**: compare «Repertum non è stata aperta». Premi *Fine* (non *Sposta nel
+  Cestino*), poi apri *Impostazioni di Sistema* → *Privacy e sicurezza*, scorri in fondo e premi
+  *Apri comunque* accanto a «Repertum è stata bloccata». Conferma con la password e di nuovo
+  *Apri comunque*. Serve solo la prima volta.
+- **macOS 12-14**: tasto destro su `Repertum.app` → *Apri* → *Apri*.
+- **macOS, dal Terminale** (qualsiasi versione): `xattr -dr com.apple.quarantine /percorso/di/Repertum.app`
+  toglie il segno «scaricato da internet», e da lì in poi l'app si apre con un doppio clic.
+- **macOS**: la prima volta che legge una chiavetta, può chiedere il permesso di accedere ai
+  volumi rimovibili: va concesso.
 - **Linux**: `tar xzf Repertum-linux-x64.tar.gz && ./Repertum/Repertum`. All'avvio chiede la
   password di amministratore (pkexec) per il blocco della scrittura. Nella cartella ci sono anche
   `repertum.desktop` e l'icona, per aggiungerlo al menu delle applicazioni.
