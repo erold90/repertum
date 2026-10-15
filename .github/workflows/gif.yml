@@ -1,0 +1,76 @@
+name: GIF della documentazione
+# Registra Repertum mentre lavora davvero e ne ricava le GIF di docs/.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['tools/gif/**', '.github/workflows/gif.yml']
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilazione
+        shell: pwsh
+        run: dotnet build src/Repertum.Windows/Repertum.Windows.csproj -c Release -o out --nologo -v minimal
+
+      - name: Chiavetta simulata (VHD FAT32 «KINGSTON», circa 600 MB)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "create vdisk file=C:\chiavetta.vhdx maximum=1024 type=expandable`r`nselect vdisk file=C:\chiavetta.vhdx`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat32 quick label=KINGSTON`r`nassign letter=R`r`n" | Set-Content C:\dp.txt -Encoding ASCII
+          diskpart /s C:\dp.txt | Out-Null
+          $caso = New-Object Random 2026
+          $quando = Get-Date '2025-03-21 18:30:00'
+          $file = @(
+            @('DCIM\100MEDIA\IMG_0001.JPG', 3.4MB, 0), @('DCIM\100MEDIA\IMG_0002.JPG', 3.9MB, 2), @('DCIM\100MEDIA\IMG_0003.JPG', 3.7MB, 3),
+            @('DCIM\100MEDIA\VID_0004.MP4', 60MB, 6), @('Video\registrazione 21-03.mp4', 90MB, 45),
+            @('Documenti\Contratto firmato.pdf', 300KB, 300), @('Documenti\Elenco.xlsx', 40KB, 310), @('Documenti\Note.txt', 2KB, 320),
+            @('DVR\CH01\20250321_183000.dav', 220MB, 0), @('DVR\CH02\20250321_183000.dav', 210MB, 0), @('DVR\Player\SmartPlayer.exe', 400KB, -900)
+          )
+          $blocco = New-Object byte[] (4MB)
+          foreach ($x in $file) {
+            $p = Join-Path 'R:\' $x[0]
+            New-Item -ItemType Directory (Split-Path $p) -Force | Out-Null
+            $fs = [IO.File]::Create($p)
+            $resta = [long]$x[1]
+            while ($resta -gt 0) { $caso.NextBytes($blocco); $n = [int][Math]::Min($resta, $blocco.Length); $fs.Write($blocco, 0, $n); $resta -= $n }
+            $fs.Close()
+            $d = $quando.AddMinutes($x[2]); (Get-Item $p).LastWriteTime = $d; (Get-Item $p).CreationTime = $d
+          }
+          Get-ChildItem R:\ -Recurse -File | Format-Table FullName, Length -AutoSize | Out-String -Width 200
+          Dismount-DiskImage -ImagePath C:\chiavetta.vhdx | Out-Null
+
+      - name: Registrazione
+        shell: powershell
+        timeout-minutes: 20
+        run: |
+          $ErrorActionPreference = 'Stop'
+          tools\gif\registra-windows.ps1 -Exe out\Repertum.exe -Uscita fotogrammi\principale -Scenario principale -Immagine C:\chiavetta.vhdx
+          $acq = (Get-ChildItem C:\Repertum -Directory | Select-Object -First 1).FullName
+          $video = Get-ChildItem (Join-Path $acq 'File') -Recurse -File -Filter *.mp4 | Select-Object -First 1
+          tools\gif\registra-windows.ps1 -Exe out\Repertum.exe -Uscita fotogrammi\verifica -Scenario verifica -Cartella $acq -DaAlterare $video.FullName
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Composizione delle GIF
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pillow==11.1.0
+          New-Item -ItemType Directory gif -Force | Out-Null
+          python tools/gif/crea_gif.py fotogrammi/principale gif/windows.gif
+          python tools/gif/crea_gif.py fotogrammi/verifica gif/verifica.gif
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gif-windows
+          path: |
+            gif
+            fotogrammi
