@@ -2,8 +2,9 @@ name: Windows
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths: ['src/**', '.github/workflows/windows.yml']
+    paths: ['src/Repertum.Windows/**', 'src/Repertum.Core/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['src/Repertum.Windows/**', 'src/Repertum.Core/**', '.github/workflows/windows.yml']
 jobs:
   app:
     runs-on: windows-latest
