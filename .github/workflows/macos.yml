@@ -76,10 +76,17 @@ jobs:
           hdiutil create -size 128m -fs "MS-DOS FAT32" -volname FINTA -layout MBRSPUD finta.dmg
           mkdir -p mnt
           hdiutil attach finta.dmg -nobrowse -mountpoint "$PWD/mnt"
+          xattr -rc sorgente
           ditto --norsrc --noextattr --noqtn --noacl sorgente mnt
-          find mnt -type f | sort
+          # immagine pulita: solo i file della chiavetta, senza .fseventsd, .Spotlight-V100 e ._
+          python3 -I .github/collaudo/pulisci.py "$PWD/mnt"
+          find mnt | sort
           hdiutil detach "$PWD/mnt"
           shasum -a 256 finta.dmg | tee prima.txt
+          hdiutil attach finta.dmg -readonly -nobrowse -noverify -mountpoint "$PWD/mnt" > /dev/null
+          (cd mnt && find . | sort) > elenco-prima.txt
+          hdiutil detach "$PWD/mnt" > /dev/null
+          echo "file sull'immagine: $(grep -c . elenco-prima.txt) voci"; cat elenco-prima.txt
 
       - name: Flusso reale (immagine agganciata dopo l'avvio)
         if: env.SENZA_ROSETTA == ''
@@ -111,6 +118,12 @@ jobs:
           [ -n "$DEV" ] || { diagnosi; kill $P; exit 1; }
           diskutil list "$DEV" || true
           attendi 'fine della copia' 240 nel_registro "$R/istantanee" 'File prodotti' || { diagnosi; kill $P; exit 1; }
+          echo "--- montaggio: $(mount | grep "^${DEV}s1 ")"
+          mount | grep "^${DEV}s1 " | grep -q 'read-only' || { echo 'volume NON in sola lettura'; diagnosi; kill $P; exit 1; }
+          VOL=$(mount | awk -v d="${DEV}s1" '$1==d {sub(/^.* on /,""); sub(/ \(.*$/,""); print}')
+          (cd "$VOL" && find . | sort) > elenco-durante.txt
+          if ! cmp -s elenco-prima.txt elenco-durante.txt; then echo 'sul volume sono comparsi file nuovi:'; diff elenco-prima.txt elenco-durante.txt; kill $P; exit 1; fi
+          echo 'nessun .Spotlight-V100, .fseventsd o ._ comparso sul volume'
           sleep 3
           hdiutil detach "$DEV" || hdiutil detach -force "$DEV"
           echo 'immagine staccata: Repertum deve chiudersi da solo'

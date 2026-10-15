@@ -22,6 +22,7 @@ namespace Repertum
         public string Istantanee;         // --istantanee <cartella>: registro e schermate del lavoro vero
         public string Registra;           // --registra <cartella>: fotogrammi per le GIF e frames.csv
         public string Icona;              // --icona <cartella>: immagini dell'icona, poi esce
+        public string Destinazione;       // --destinazione <cartella>: dove salvare, solo per questa volta
         public string Verifica;           // Repertum <cartella>: si apre sulla verifica di quell'acquisizione
         public bool Automatico;           // --automatico: salva da solo, si chiude quando la chiavetta va via
         public bool TestDispositivi;      // --test-dispositivi: accetta immagini disco (hdiutil) e dispositivi loop
@@ -36,6 +37,7 @@ namespace Repertum
                 else if (a == "--istantanee" && i + 1 < args.Length) o.Istantanee = Path.GetFullPath(args[++i]);
                 else if (a == "--registra" && i + 1 < args.Length) o.Registra = Path.GetFullPath(args[++i]);
                 else if (a == "--icona" && i + 1 < args.Length) o.Icona = Path.GetFullPath(args[++i]);
+                else if (a == "--destinazione" && i + 1 < args.Length) o.Destinazione = Path.GetFullPath(args[++i]);
                 else if (a == "--automatico") o.Automatico = true;
                 else if (a == "--test-dispositivi") o.TestDispositivi = true;
                 else if (!a.StartsWith("-") && Directory.Exists(a)) o.Verifica = Path.GetFullPath(a);

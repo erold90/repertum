@@ -79,7 +79,7 @@ namespace Repertum
             attuale = this;
             this.opz = opz;
             this.sistema = sistema;
-            destinazione = DestinazioneSalvata();
+            destinazione = opz.Destinazione ?? DestinazioneSalvata();
             Dialogo.Automatico = opz.Automatico || opz.Anteprima != null;
             Dialogo.Annota = t => log.Scrivi(t);
 
@@ -115,7 +115,16 @@ namespace Repertum
             tAvanzamento.Tick += (s, e) => AggiornaAvanzamento();
             Opened += (s, e) => Dispatcher.UIThread.Post(Avvio, DispatcherPriority.Background);
             Closing += Chiusura;
+            // kill, Ctrl+C, chiusura del terminale: si chiude come dal pulsante, con la pulizia completa
+            foreach (var segnale in new[] { System.Runtime.InteropServices.PosixSignal.SIGTERM, System.Runtime.InteropServices.PosixSignal.SIGINT, System.Runtime.InteropServices.PosixSignal.SIGHUP })
+                segnali.Add(System.Runtime.InteropServices.PosixSignalRegistration.Create(segnale, c =>
+                {
+                    c.Cancel = true;
+                    Dispatcher.UIThread.Post(() => { if (!chiuso) { log.Scrivi("Chiusura richiesta dal sistema (" + c.Signal + ")."); chiusuraConfermata = true; Close(); } });
+                }));
         }
+
+        readonly List<System.Runtime.InteropServices.PosixSignalRegistration> segnali = new List<System.Runtime.InteropServices.PosixSignalRegistration>();
 
         public static void ErroreImprevisto(Exception e)
         {
@@ -213,13 +222,15 @@ namespace Repertum
             bApri = new PulsanteIcona("Apri cartella", Icona.Cartella, 150, 42) { IsEnabled = false };
             bApri.Click += (s, e) => { if (ultimaCartella != null) Sistemi.ApriCartella(ultimaCartella); };
             Grid.SetColumn(bApri, 1);
-            var fDest = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) };
+            // a destra; un percorso troppo lungo si accorcia al centro invece di uscire dalla finestra
+            var fDest = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 4, 0) };
             fDest.Children.Add(new TextBlock { Text = "Salva in:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
-            tDestinazione = new TextBlock { Text = destinazione, TextDecorations = TextDecorations.Underline, VerticalAlignment = VerticalAlignment.Center };
-            lDestinazione = new Button { Content = tDestinazione, VerticalAlignment = VerticalAlignment.Center };
+            tDestinazione = new TextBlock { Text = destinazione, TextDecorations = TextDecorations.Underline, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.PathSegmentEllipsis };
+            lDestinazione = new Button { Content = tDestinazione, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
             lDestinazione.Classes.Add("link");
             ToolTip.SetTip(lDestinazione, "Clic per scegliere un'altra cartella");
             lDestinazione.Click += (s, e) => CambiaDestinazione();
+            Grid.SetColumn(lDestinazione, 1);
             fDest.Children.Add(lDestinazione);
             Grid.SetColumn(fDest, 2);
             basso.Children.Add(bSalva);
@@ -408,6 +419,12 @@ namespace Repertum
             righeAvvio = log.Conteggio;
             conosciute = new HashSet<string>(sistema.Pronti().Keys);
             daScollegare = sistema.Preesistenti();
+            if (daScollegare.Count > 0 && opz.TestDispositivi)
+            {
+                // in prova con le immagini disco una chiavetta vera gia' collegata non si tocca e non blocca
+                log.Scrivi("Modalità prova: il supporto già collegato (" + string.Join(", ", daScollegare) + ") resta escluso e non si legge.");
+                daScollegare = new List<string>();
+            }
             if (daScollegare.Count > 0) log.Scrivi("All'avvio era già collegato un supporto rimovibile (" + string.Join(", ", daScollegare) + "): va scollegato e ricollegato.");
             ImpostaFase(daScollegare.Count > 0 ? Fase.DaScollegare : Fase.Attesa);
             tControllo.Start();
