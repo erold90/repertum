@@ -1,0 +1,51 @@
+name: Rilascio
+# Un tag vX.Y.Z collauda le tre piattaforme e, se tutto è verde, pubblica il rilascio.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  windows:
+    uses: ./.github/workflows/windows.yml
+  macos:
+    uses: ./.github/workflows/macos.yml
+  linux:
+    uses: ./.github/workflows/linux.yml
+
+  rilascio:
+    needs: [windows, macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pacchetto-*
+          path: pacchetti
+          merge-multiple: true
+
+      - name: Impronte e note di rilascio
+        run: |
+          cd pacchetti
+          ls -la
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" 'index($0, "## [" v "]") == 1 {on = 1; next} on && /^## / {exit} on {print}' CHANGELOG.md > note.md
+          test -s note.md || { echo "CHANGELOG.md non ha la sezione [$ver]"; exit 1; }
+          {
+            echo
+            echo '### Impronte SHA-256'
+            echo
+            echo '```'
+            cat pacchetti/SHA256SUMS.txt
+            echo '```'
+          } >> note.md
+          cat note.md
+
+      - name: Pubblicazione
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" pacchetti/* --title "Repertum ${GITHUB_REF_NAME#v}" --notes-file note.md --verify-tag

@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Problema di integrità (in privato)
+    url: https://github.com/erold90/repertum/security/advisories/new
+    about: Qualcosa scritto sulla chiavetta, hash sbagliati, copie diverse date per buone.

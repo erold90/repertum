@@ -1,0 +1,39 @@
+name: Segnala un problema
+description: Qualcosa non funziona come dovrebbe
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Se il problema riguarda l'**integrità** (qualcosa scritto sulla chiavetta, un hash sbagliato, una copia diversa data per buona) **non scriverlo qui**: segnalalo in privato da *Security → Report a vulnerability*.
+  - type: dropdown
+    id: sistema
+    attributes:
+      label: Sistema operativo
+      options: [Windows 11, Windows 10, macOS (Apple Silicon), macOS (Intel), Linux]
+    validations:
+      required: true
+  - type: input
+    id: versione
+    attributes:
+      label: Versione di Repertum
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: chiavetta
+    attributes:
+      label: Chiavetta e file system
+      placeholder: "Kingston DataTraveler 32 GB, FAT32"
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa hai fatto e cosa è successo
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: LOG.txt
+      description: Dalla cartella salvata, se c'è. Togli prima i dati che non vuoi condividere.
+      render: text
