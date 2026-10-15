@@ -1,0 +1,10 @@
+<Project>
+  <!-- La versione e' una sola, in Versione.cs: se il <Version> del progetto non coincide, la compilazione si ferma. -->
+  <Target Name="RepertumControllaVersione" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_RepertumVersioneCore>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)Versione.cs')), '(?&lt;=Numero = ")[0-9.]+'))</_RepertumVersioneCore>
+    </PropertyGroup>
+    <Error Condition="'$(_RepertumVersioneCore)' != '$(Version)'"
+           Text="Versione diversa: Versione.cs dice $(_RepertumVersioneCore), il progetto $(MSBuildProjectName) dice $(Version)." />
+  </Target>
+</Project>

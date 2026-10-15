@@ -1,0 +1,182 @@
+name: Linux
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    paths: ['src/Repertum.Core/**', 'src/Repertum.Desktop/**', '.github/collaudo/**', '.github/workflows/linux.yml']
+  pull_request:
+    paths: ['src/Repertum.Core/**', 'src/Repertum.Desktop/**', '.github/collaudo/**', '.github/workflows/linux.yml']
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      R: ${{ github.workspace }}/risultati
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Pacchetti di sistema (Xvfb, polkit, FAT)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends xvfb xauth pkexec polkitd dosfstools libice6 libsm6 libfontconfig1 fonts-dejavu-core > /dev/null
+          lsb_release -d; uname -r
+
+      - name: Compilazione
+        run: |
+          dotnet publish src/Repertum.Desktop/Repertum.Desktop.csproj -c Release -r linux-x64 --self-contained \
+            -p:PublishSingleFile=true -o out --nologo -v minimal
+          ls -la out
+
+      - name: Pacchetto
+        run: |
+          set -e
+          xvfb-run -a out/Repertum --icona "$PWD/icona"
+          mkdir -p pacchetto/Repertum "$R"
+          cp out/Repertum icona/repertum.png src/Repertum.Desktop/Pacchetti/repertum.desktop pacchetto/Repertum/
+          chmod 755 pacchetto/Repertum/Repertum
+          tar -C pacchetto -czf Repertum-linux-x64.tar.gz Repertum
+          tar -tzvf Repertum-linux-x64.tar.gz
+          cp icona/repertum.png "$R/icona.png"
+
+      - name: Anteprima con dati finti
+        timeout-minutes: 4
+        run: |
+          timeout 150 xvfb-run -a -s "-screen 0 1280x1024x24" out/Repertum --anteprima "$R/anteprima" \
+            || { echo "anteprima: codice $?"; cat /tmp/Repertum-errori.txt 2>/dev/null; exit 1; }
+          ls -la "$R/anteprima"
+
+      - name: Chiavetta finta (immagine con tabella delle partizioni e FAT32)
+        run: |
+          set -e
+          python3 .github/collaudo/chiavetta.py sorgente attesi.json
+          truncate -s 128M finta.img
+          printf 'label: dos\nstart=2048, type=c\n' | sfdisk -q finta.img
+          L=$(sudo losetup -fP --show finta.img)
+          sudo mkfs.vfat -F 32 -n FINTA "${L}p1"
+          sudo mkdir -p /mnt/finta
+          sudo mount -t vfat -o "uid=$(id -u),gid=$(id -g),utf8" "${L}p1" /mnt/finta
+          cp -r sorgente/. /mnt/finta/
+          find /mnt/finta -type f | sort
+          sudo umount /mnt/finta
+          sudo losetup -d "$L"
+          sha256sum finta.img | tee prima.txt
+
+      - name: Regola polkit per l'utente runner (pkexec senza agente)
+        run: |
+          sudo tee /etc/polkit-1/rules.d/49-repertum-collaudo.rules > /dev/null <<'EOF'
+          polkit.addRule(function(action, subject) {
+            if (action.id == "org.freedesktop.policykit.exec" && subject.user == "runner") return polkit.Result.YES;
+          });
+          EOF
+          sudo systemctl restart polkit 2>/dev/null || sudo systemctl restart polkitd 2>/dev/null || true
+          sleep 1
+          pkexec /usr/bin/id -u
+
+      - name: Flusso reale (loop collegato dopo l'avvio, sotto Xvfb)
+        timeout-minutes: 10
+        run: |
+          set +e
+          attendi() { local d=$1 s=$2; shift 2; for i in $(seq $((s*2))); do if "$@"; then return 0; fi; sleep 0.5; done; echo "timeout: $d"; return 1; }
+          nel_registro() { grep -q "$2" "$1/registro.txt" 2>/dev/null; }
+          diagnosi() {
+            echo '--- registro'; cat "$R/istantanee/registro.txt" 2>/dev/null
+            echo '--- uscita del programma'; cat app.log 2>/dev/null
+            echo '--- errori imprevisti'; cat /tmp/Repertum-errori.txt 2>/dev/null
+            echo '--- dispositivi'; lsblk -o NAME,SIZE,RO,TYPE,FSTYPE,MOUNTPOINTS; losetup -a; grep -E 'repertum|loop' /proc/mounts
+            echo '--- regola udev'; cat /run/udev/rules.d/00-repertum.rules 2>/dev/null
+            echo '--- processi'; pgrep -af Repertum
+          }
+          Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp > xvfb.log 2>&1 &
+          X=$!
+          sleep 2
+          export DISPLAY=:99
+          out/Repertum --automatico --test-dispositivi --istantanee "$R/istantanee" --registra "$R/registrazione" > app.log 2>&1 &
+          P=$!
+          attendi 'attivazione del blocco' 90 nel_registro "$R/istantanee" 'Protezione da scrittura USB attivata' || { diagnosi; exit 1; }
+          echo '--- regola udev installata'; cat /run/udev/rules.d/00-repertum.rules
+          sleep 2
+          L=$(sudo losetup -fP --show finta.img)
+          echo "chiavetta finta collegata: $L"
+          attendi 'fine della copia' 240 nel_registro "$R/istantanee" 'File prodotti' || { diagnosi; kill $P; exit 1; }
+          lsblk -o NAME,SIZE,RO,TYPE,FSTYPE,MOUNTPOINTS "$L"
+          cat "/sys/block/$(basename $L)/ro" "/sys/block/$(basename $L)/$(basename $L)p1/ro"
+          grep "$(basename $L)" /proc/mounts
+          sleep 3
+          # «scollegare»: losetup -d su un loop montato lo stacca appena Repertum smonta
+          sudo losetup -d "$L"
+          echo 'chiavetta finta scollegata: Repertum deve chiudersi da solo'
+          attendi 'chiusura del programma' 60 sh -c "! kill -0 $P 2>/dev/null" || { diagnosi; kill $P; exit 1; }
+          wait $P; C=$?
+          echo "codice d'uscita: $C"
+          echo '--- registro'; cat "$R/istantanee/registro.txt"
+          [ $C -eq 0 ] || { diagnosi; exit 1; }
+          E=0
+          if [ -e /run/udev/rules.d/00-repertum.rules ]; then echo 'la regola udev è rimasta'; E=1; fi
+          if grep -q /run/repertum /proc/mounts; then echo 'un volume è rimasto montato'; E=1; fi
+          if pgrep -f -- '--helper' > /dev/null; then echo "l'aiutante è ancora vivo"; E=1; fi
+          sleep 1
+          if losetup -a | grep -q finta.img; then echo 'il loop non si è staccato'; losetup -a; E=1; fi
+          grep -q 'SOLA LETTURA - ' "$R/istantanee/registro.txt" || { echo 'sola lettura non confermata'; E=1; }
+          kill $X
+          exit $E
+
+      - name: Controlli (hash, copie, allegati, immagine intatta)
+        run: |
+          set -e
+          sha256sum finta.img | tee dopo.txt
+          if ! cmp -s prima.txt dopo.txt; then echo "L'IMMAGINE E' CAMBIATA"; exit 1; fi
+          echo "immagine identica prima e dopo: $(cut -d' ' -f1 dopo.txt)"
+          ACQ=$(ls -d "$HOME"/Repertum/*_FINTA | head -1)
+          echo "ACQ=$ACQ" >> "$GITHUB_ENV"
+          ls -la "$ACQ" "$ACQ/File"
+          python3 .github/collaudo/controlla.py "$ACQ" attesi.json
+          (cd "$ACQ/File" && sha256sum -c ../HASH.sha256 && md5sum -c ../HASH.md5)
+          # ogni file della chiavetta, letto dall'immagine collegata in sola lettura
+          L=$(sudo losetup -r -fP --show finta.img)
+          sudo mkdir -p /mnt/ro && sudo mount -o ro,utf8 "${L}p1" /mnt/ro
+          (cd /mnt/ro && sha256sum -c "$ACQ/HASH.sha256" && md5sum -c "$ACQ/HASH.md5")
+          N=$(sudo find /mnt/ro -type f | wc -l); H=$(wc -l < "$ACQ/HASH.sha256")
+          echo "file sull'immagine: $N, righe in HASH.sha256: $H"
+          sudo umount /mnt/ro && sudo losetup -d "$L"
+          [ "$N" -eq "$H" ]
+          echo '--- RIEPILOGO'; cat "$ACQ/RIEPILOGO.txt"
+          echo '--- INVENTARIO'; cat "$ACQ/INVENTARIO.csv"
+          echo '--- LOG'; cat "$ACQ/LOG.txt"
+
+      - name: Verifica della cartella salvata (Repertum <cartella>)
+        timeout-minutes: 5
+        run: |
+          set +e
+          timeout 150 xvfb-run -a -s "-screen 0 1280x1024x24" out/Repertum "$ACQ" --automatico \
+            --istantanee "$R/istantanee-verifica" --registra "$R/registrazione-verifica" > verifica.log 2>&1
+          C=$?
+          cat "$R/istantanee-verifica/registro.txt"
+          cat "$ACQ/VERIFICHE.txt"
+          [ $C -eq 0 ] && grep -q ' 0 alterati, 0 mancanti' "$R/istantanee-verifica/registro.txt" || { cat verifica.log; exit 1; }
+          [ ! -e /run/udev/rules.d/00-repertum.rules ] || { echo 'la regola udev è rimasta'; exit 1; }
+
+      - name: Raccolta dei risultati
+        if: always()
+        run: |
+          mkdir -p "$R"
+          cp app.log verifica.log xvfb.log "$R/" 2>/dev/null || true
+          if [ -n "$ACQ" ] && [ -d "$ACQ" ]; then mkdir -p "$R/acquisizione"; find "$ACQ" -maxdepth 1 -type f -exec cp {} "$R/acquisizione/" \;; fi
+          ls -R "$R" | head -80
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacchetto-linux-x64
+          path: Repertum-linux-x64.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: schermate-linux
+          path: risultati

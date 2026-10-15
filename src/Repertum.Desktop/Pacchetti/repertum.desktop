@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Repertum
+GenericName=Copia e hash di chiavette USB
+Comment=Copia e hash di chiavette USB in sola lettura
+Exec=sh -c "exec \\"\\$(dirname \\"\\$0\\")/Repertum\\"" %k
+Icon=repertum
+Terminal=false
+Categories=Utility;
+StartupWMClass=Repertum

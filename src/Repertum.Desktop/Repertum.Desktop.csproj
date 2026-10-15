@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Repertum per macOS e Linux: interfaccia Avalonia, Core comune con la versione Windows. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Repertum</AssemblyName>
+    <RootNamespace>Repertum</RootNamespace>
+    <Version>1.2.0</Version>
+    <Product>Repertum</Product>
+    <Title>Repertum</Title>
+    <Description>Copia e hash di chiavette USB in sola lettura</Description>
+    <Copyright>Copyright (c) 2026 Daniele Lo Re</Copyright>
+    <Company>Daniele Lo Re</Company>
+    <Authors>Daniele Lo Re</Authors>
+    <RepositoryUrl>https://github.com/erold90/repertum</RepositoryUrl>
+    <DebugType>none</DebugType>
+    <!-- senza dipendere dalle librerie ICU del sistema: il formato italiano lo costruisce il Core -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>it</SatelliteResourceLanguages>
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <EnableCompressionInSingleFile Condition="'$(PublishSingleFile)' == 'true'">true</EnableCompressionInSingleFile>
+    <!-- Linux: un solo file anche con le librerie native; macOS: le .dylib stanno nel pacchetto .app, firmate -->
+    <IncludeNativeLibrariesForSelfExtract Condition="$(RuntimeIdentifier.StartsWith('linux'))">true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="11.3.13" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Repertum.Core\Repertum.Core.csproj" />
+  </ItemGroup>
+  <Import Project="..\Repertum.Core\Versione.targets" />
+</Project>
