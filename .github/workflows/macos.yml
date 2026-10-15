@@ -103,8 +103,12 @@ jobs:
           sleep 2
           # «-mount optional»: DiskArbitration prova a montarla, Repertum rifiuta, l'immagine resta agganciata
           hdiutil attach -mount optional finta.dmg 2>&1 | tee attach.txt || true
-          DEV=$(grep -oE '^/dev/disk[0-9]+' attach.txt | head -1)
+          # hdiutil segnala il montaggio rifiutato, ma l'immagine resta agganciata: il disco si legge da «hdiutil info»
+          disco() { hdiutil info | awk '/^image-path.*\/finta\.dmg$/{f=1} f && /^\/dev\/disk[0-9]+[[:space:]]/{print $1; exit}'; }
+          attendi 'immagine agganciata' 20 sh -c "hdiutil info | grep -q '/finta.dmg$'" || true
+          DEV=$(disco)
           echo "immagine agganciata: $DEV"
+          [ -n "$DEV" ] || { diagnosi; kill $P; exit 1; }
           diskutil list "$DEV" || true
           attendi 'fine della copia' 240 nel_registro "$R/istantanee" 'File prodotti' || { diagnosi; kill $P; exit 1; }
           sleep 3
