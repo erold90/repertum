@@ -969,7 +969,7 @@ namespace Repertum
             sMsg.Text = "Verifica: " + integri + " integri su " + totale;
             Istantanea("verifica");
             if (opz.Automatico && opz.Verifica != null)
-                Dispatcher.UIThread.Post(async () => { await Task.Delay(800); chiusuraConfermata = true; Close(); }, DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(async () => { await Task.Delay(2000); chiusuraConfermata = true; Close(); }, DispatcherPriority.Background);
         }
 
         // ================================================================== appunti e varie
