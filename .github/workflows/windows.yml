@@ -1,6 +1,7 @@
 name: Windows
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     paths: ['src/Repertum.Windows/**', 'src/Repertum.Core/**', '.github/workflows/windows.yml']
   pull_request:
@@ -164,6 +165,13 @@ jobs:
           Start-Sleep 3
           $L = (Get-DiskImage C:\finta.vhdx | Get-Disk | Get-Partition | Get-Volume).DriveLetter + ':\'
           $err = 0
+          # nei file HASH.* il separatore e' '/', come in sha256sum e md5sum
+          foreach ($f in 'HASH.sha256','HASH.md5') {
+            $righe = @(Get-Content (Join-Path $acq $f) -Encoding UTF8)
+            if (@($righe | Where-Object { $_.Contains('\') }).Count) { $err++; "$f contiene la barra rovesciata" }
+            if (-not @($righe | Where-Object { $_.Contains('/') }).Count) { $err++; "$f non usa '/' per le sottocartelle" }
+            "$f`: $($righe.Count) righe, separatore '/'"
+          }
           foreach ($riga in (Get-Content (Join-Path $acq 'HASH.sha256') -Encoding UTF8)) {
             $h, $n = $riga -split '  ', 2
             $v = (Get-FileHash -LiteralPath (Join-Path $L $n) -Algorithm SHA256).Hash.ToLower()
@@ -175,6 +183,12 @@ jobs:
           '--- INVENTARIO'; Get-Content (Join-Path $acq 'INVENTARIO.csv') -Encoding UTF8
           '--- VERIFICHE'; Get-Content (Join-Path $acq 'VERIFICHE.txt') -Encoding UTF8
           if ($err) { exit 1 }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacchetto-windows
+          path: out/Repertum.exe
+          if-no-files-found: error
 
       - name: Raccolta dei risultati
         if: always()

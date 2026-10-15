@@ -10,7 +10,7 @@
     <ApplicationIcon>repertum.ico</ApplicationIcon>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>Repertum</Product>
     <Title>Repertum</Title>
     <Description>Copia e hash di chiavette USB in sola lettura</Description>
@@ -22,7 +22,12 @@
     <GenerateResourceUsePreserializedResources>false</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
   <ItemGroup>
+    <!-- il Core entra come sorgente, non come DLL: Repertum.exe resta un file unico -->
+    <Compile Include="..\Repertum.Core\**\*.cs" Exclude="..\Repertum.Core\bin\**;..\Repertum.Core\obj\**" Link="Core\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="System.Management" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
   </ItemGroup>
+  <Import Project="..\Repertum.Core\Versione.targets" />
 </Project>

@@ -337,7 +337,7 @@ namespace Repertum
 
         void Avvio()
         {
-            log.Scrivi("Repertum per Windows " + Programma.Versione + " avviato su " + Environment.MachineName + ", utente " + Environment.UserName + ".");
+            log.Scrivi("Repertum per Windows " + Versione.Breve + " avviato su " + Environment.MachineName + ", utente " + Environment.UserName + ".");
             if (opz.Anteprima != null) { EseguiAnteprima(opz.Anteprima); return; }
             try
             {
@@ -608,31 +608,18 @@ namespace Repertum
             log.Scrivi("Inizio del calcolo degli hash (MD5, SHA-256).");
             Task.Run(() =>
             {
-                var buf = new byte[Calcolo.DimensioneBuffer];
-                foreach (var v in lista)
-                {
-                    if (token.IsCancellationRequested) break;
-                    fileCorrente = v.Percorso;
-                    try
-                    {
-                        var r = Calcolo.Leggi(v.Assoluto, null, Alg, buf, n => Interlocked.Add(ref fattiBytes, n), token);
-                        v.MD5 = r.MD5; v.SHA256 = r.SHA256;
-                        v.Esito = "Letto";
-                        log.Scrivi(r.SHA256 + "  " + v.Percorso + "  (" + Formati.ByteEsatti(v.Dimensione) + ")");
-                    }
-                    catch (OperationCanceledException) { break; }
-                    catch (Exception e)
-                    {
-                        v.Esito = "NON LEGGIBILE: " + e.Message;
-                        log.Scrivi("ERRORE di lettura su " + v.Percorso + ": " + e.Message);
-                    }
-                    Interlocked.Increment(ref fattiFile);
-                    var vv = v;
-                    BeginInvoke((Action)(() => { if (gen == generazione) AggiornaRiga(vv); }));
-                }
-                bool interrotto = token.IsCancellationRequested;
+                bool interrotto = Procedura.CalcolaHash(lista, Alg, log, n => Interlocked.Add(ref fattiBytes, n),
+                                                        v => fileCorrente = v.Percorso, v => FileFinito(v, gen), token);
                 BeginInvoke((Action)(() => { if (gen == generazione) FineCalcolo(interrotto); }));
             });
+        }
+
+        // A ogni file finito: la riga e, subito, anche «N di M» e la percentuale dell'intestazione,
+        // che altrimenti resterebbero indietro di un giro del timer quando i file sono piccoli.
+        void FileFinito(VoceFile v, int gen)
+        {
+            Interlocked.Increment(ref fattiFile);
+            BeginInvoke((Action)(() => { if (gen == generazione) { AggiornaRiga(v); AggiornaAvanzamento(); } }));
         }
 
         void AggiornaRiga(VoceFile v)
@@ -758,61 +745,12 @@ namespace Repertum
                 int buone = 0;
                 foreach (var v in tutte) { v.Copiato = false; v.InElenco = false; if (v.SHA256 != null) v.Esito = "Letto"; }
                 if (conCopia)
-                {
-                    var buf = new byte[Calcolo.DimensioneBuffer];
-                    var dirFile = Path.Combine(cartella, "File");
-                    foreach (var v in scelti)
-                    {
-                        if (token.IsCancellationRequested) break;
-                        fileCorrente = v.Percorso;
-                        var dest = Path.Combine(dirFile, v.Percorso);
-                        try
-                        {
-                            Directory.CreateDirectory(Path.GetDirectoryName(dest));
-                            var r = Calcolo.Leggi(v.Assoluto, dest, Algoritmi.SHA256, buf, n => Interlocked.Add(ref fattiBytes, n), token);
-                            File.SetCreationTime(dest, v.Creato);
-                            File.SetLastWriteTime(dest, v.Modificato);
-                            v.Copiato = true;
-                            v.InElenco = true;
-                            if (r.SHA256 != v.SHA256) v.Esito = "ORIGINALE CAMBIATO";
-                            else
-                            {
-                                var c = Calcolo.Leggi(dest, null, Algoritmi.SHA256, buf, n => Interlocked.Add(ref fattiBytes, n), token);
-                                if (c.SHA256 == v.SHA256) { v.Esito = "Copia verificata"; buone++; }
-                                else v.Esito = "COPIA DIFFORME";
-                            }
-                            File.SetAttributes(dest, File.GetAttributes(dest) | FileAttributes.ReadOnly);
-                            log.Scrivi(v.Esito + ": " + v.Percorso);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            try { if (File.Exists(dest)) File.Delete(dest); } catch { }
-                            v.Copiato = false; v.InElenco = false;
-                            break;
-                        }
-                        catch (Exception e)
-                        {
-                            try { if (File.Exists(dest)) { File.SetAttributes(dest, FileAttributes.Normal); File.Delete(dest); } } catch { }
-                            v.Copiato = false; v.InElenco = false;
-                            v.Esito = "COPIA NON RIUSCITA: " + e.Message;
-                            log.Scrivi("ERRORE nella copia di " + v.Percorso + ": " + e.Message);
-                        }
-                        Interlocked.Increment(ref fattiFile);
-                        var vv = v;
-                        BeginInvoke((Action)(() => { if (gen == generazione) AggiornaRiga(vv); }));
-                    }
-                }
+                    buone = Procedura.CopiaEVerifica(scelti, cartella, log, n => Interlocked.Add(ref fattiBytes, n),
+                                                     v => fileCorrente = v.Percorso, v => FileFinito(v, gen), token);
                 else foreach (var v in scelti) v.InElenco = true;
 
                 bool interrotto = token.IsCancellationRequested;
-                var tempi = new List<KeyValuePair<string, string>>();
-                Action<string, DateTime> t = (k, d) => { if (d != default(DateTime)) tempi.Add(new KeyValuePair<string, string>(k, Formati.Data(d))); };
-                t("Sola lettura attivata alle", oraBlocco);
-                t("Chiavetta collegata alle", oraCollegamento);
-                t("Calcolo degli hash", inizioCalcolo);
-                t("Fine del calcolo", fineCalcolo);
-                t(conCopia ? "Inizio della copia" : "Salvataggio", inizio);
-                t("Fine", DateTime.Now);
+                var tempi = Allegati.Tempi(oraBlocco, oraCollegamento, inizioCalcolo, fineCalcolo, conCopia, inizio, DateTime.Now);
                 var protezione = new List<string>();
                 if (Blocco.Attivo)
                 {
@@ -824,15 +762,7 @@ namespace Repertum
                     protezione.Add(p0.Protetto ? "Controllo sulla chiavetta, senza scriverci: " + p0.Dettaglio + "."
                                                : "ATTENZIONE: il controllo sulla chiavetta NON ha confermato la sola lettura (" + p0.Dettaglio + ").");
                 if (interrotto) protezione.Add("NOTA: copia interrotta prima della fine.");
-                try
-                {
-                    Allegati.Hash(cartella, tutte, Alg);
-                    Allegati.Inventario(cartella, tutte, Alg);
-                    Allegati.Riepilogo(cartella, i0 ?? new InfoSupporto(), protezione, tutte, Alg, tempi);
-                    Allegati.Rapporto(cartella, i0 ?? new InfoSupporto(), protezione, tutte, Alg, tempi);
-                    log.Scrivi("File prodotti: HASH.sha256, HASH.md5, INVENTARIO.csv, RIEPILOGO.txt, RAPPORTO.html" + (conCopia ? ", File\\" : "") + ".");
-                }
-                catch (Exception e) { log.Scrivi("ERRORE nella scrittura dei file di riepilogo: " + e.Message); }
+                Allegati.Scrivi(cartella, i0, protezione, tutte, Alg, tempi, conCopia, log);
                 int totale = scelti.Count;
                 BeginInvoke((Action)(() => { if (gen == generazione) FineLavoro(cartella, conCopia, interrotto, buone, totale); }));
             });
@@ -912,52 +842,24 @@ namespace Repertum
             vBanner.Imposta(Icona.Clessidra, "Verifica in corso...", cartella, Blu);
             vCts = new CancellationTokenSource();
             var token = vCts.Token;
-            long totale = 0;
-            foreach (var kv in elenco) { var p = Path.Combine(baseDir, kv.Key); if (File.Exists(p)) totale += new FileInfo(p).Length; }
-            totale = Math.Max(1, totale);
-            var inizio = DateTime.Now;
+            long totale = Procedura.DaVerificare(elenco, baseDir);
             Task.Run(() =>
             {
-                var buf = new byte[Calcolo.DimensioneBuffer];
-                int integri = 0, alterati = 0, mancanti = 0;
-                long fatti = 0;
-                for (int i = 0; i < elenco.Count; i++)
+                var esito = Procedura.Verifica(elenco, md5, baseDir, (riga, calcolato, e, f) => BeginInvoke((Action)(() =>
                 {
-                    if (token.IsCancellationRequested) break;
-                    var kv = elenco[i];
-                    var p = Path.Combine(baseDir, kv.Key);
-                    string calcolato = "", esito;
-                    if (!File.Exists(p)) { esito = "MANCANTE"; mancanti++; }
-                    else
-                    {
-                        try
-                        {
-                            bool conMd5 = md5.ContainsKey(kv.Key);
-                            var r = Calcolo.Leggi(p, null, conMd5 ? Algoritmi.SHA256 | Algoritmi.MD5 : Algoritmi.SHA256, buf, x => fatti += x, token);
-                            calcolato = r.SHA256;
-                            bool ok = r.SHA256 == kv.Value && (!conMd5 || r.MD5 == null || r.MD5 == md5[kv.Key]);
-                            esito = ok ? "INTEGRO" : "ALTERATO";
-                            if (ok) integri++; else alterati++;
-                        }
-                        catch (OperationCanceledException) { break; }
-                        catch { esito = "ILLEGGIBILE"; alterati++; }
-                    }
-                    int riga = i; long f = fatti;
-                    BeginInvoke((Action)(() =>
-                    {
-                        var r = vGriglia.Rows[riga];
-                        r.Cells["Calcolato"].Value = calcolato;
-                        r.Cells["Esito"].Value = esito;
-                        vBarra.Value = (int)Math.Min(1000, f * 1000 / totale);
-                    }));
-                }
-                bool interrotto = token.IsCancellationRequested;
-                BeginInvoke((Action)(() => FineVerifica(cartella, baseDir, elenco.Count, integri, alterati, mancanti, interrotto)));
+                    var r = vGriglia.Rows[riga];
+                    r.Cells["Calcolato"].Value = calcolato;
+                    r.Cells["Esito"].Value = e;
+                    vBarra.Value = (int)Math.Min(1000, f * 1000 / totale);
+                })), token);
+                BeginInvoke((Action)(() => FineVerifica(cartella, baseDir, esito)));
             });
         }
 
-        void FineVerifica(string cartella, string baseDir, int totale, int integri, int alterati, int mancanti, bool interrotto)
+        void FineVerifica(string cartella, string baseDir, EsitoVerifica esito)
         {
+            int totale = esito.Totale, integri = esito.Integri, alterati = esito.Alterati, mancanti = esito.Mancanti;
+            bool interrotto = esito.Interrotta;
             verificaInCorso = false;
             vbVerifica.Text = "Verifica";
             vbVerifica.Image = imgVerifica;
@@ -968,14 +870,7 @@ namespace Repertum
                 vBanner.Imposta(Icona.Fatto, "Tutto integro: " + (totale == 1 ? "1 file su 1" : totale + " file su " + totale), "Gli hash coincidono con quelli salvati.", Verde);
             else
                 vBanner.Imposta(Icona.Errore, "Attenzione: " + (alterati + mancanti == 1 ? "1 file diverso o mancante" : (alterati + mancanti) + " file diversi o mancanti"), "Non usare i file segnati in rosso.", Rosso);
-            try
-            {
-                File.AppendAllText(Path.Combine(cartella, "VERIFICHE.txt"),
-                    Formati.Data(DateTime.Now) + "  verifica su " + baseDir + ": " + integri + " integri, " + (alterati + mancanti) + " anomalie" + (interrotto ? " (interrotta)" : "") + "\r\n",
-                    new UTF8Encoding(true));
-            }
-            catch { }
-            log.Scrivi("Verifica di " + cartella + " contro " + baseDir + ": " + integri + " integri, " + alterati + " alterati, " + mancanti + " mancanti" + (interrotto ? " (interrotta)" : "") + ".");
+            Procedura.AnnotaVerifica(cartella, baseDir, esito, log);
             sMsg.Text = "Verifica: " + integri + " integri su " + totale;
             Istantanea("verifica");
         }

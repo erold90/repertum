@@ -27,11 +27,17 @@ namespace Repertum
 
     static class Programma
     {
-        public const string Versione = "1.1";
-
         [STAThread]
         static void Main(string[] args)
         {
+            Piattaforma.Nome = "Windows";
+            Piattaforma.EtichettaIdentificativo = "Identificativo Windows";
+            Piattaforma.Metodo = new[]
+            {
+                "Metodo: hash calcolati con le librerie crittografiche di Windows",
+                "(System.Security.Cryptography) in un'unica lettura di ciascun file; ogni copia",
+                "e' stata riletta e il suo SHA-256 confrontato con quello dell'originale."
+            };
             Thread.CurrentThread.CurrentCulture = Formati.It;
             Thread.CurrentThread.CurrentUICulture = Formati.It;
             Application.EnableVisualStyles();
