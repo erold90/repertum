@@ -26,6 +26,7 @@ namespace Repertum
         public static readonly IBrush Arancio = Da(190, 100, 0);
         public static readonly IBrush Nero = Brushes.Black;
         public static readonly IBrush Testo = Da(64, 64, 64);
+        public static readonly IBrush Spento = Da(140, 140, 140);
         public static readonly IBrush Finestra = Da(240, 240, 240);
         public static readonly IBrush Pagina = Da(249, 249, 249);
         public static readonly IBrush BordoScheda = Da(229, 229, 229);
@@ -243,7 +244,7 @@ namespace Repertum
         }
     }
 
-    abstract class Notificante : INotifyPropertyChanged
+    public abstract class Notificante : INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler PropertyChanged;
         protected void Notifica(params string[] nomi)
@@ -255,7 +256,7 @@ namespace Repertum
     }
 
     // Una riga dell'elenco dei file della chiavetta.
-    sealed class RigaFile : Notificante
+    public sealed class RigaFile : Notificante
     {
         public readonly VoceFile Voce;
         readonly Action cambioSelezione;
@@ -288,7 +289,7 @@ namespace Repertum
     }
 
     // Una riga della verifica.
-    sealed class RigaVerifica : Notificante
+    public sealed class RigaVerifica : Notificante
     {
         string esito, calcolato;
         public RigaVerifica(string nome, string atteso) { Nome = nome; Atteso = atteso; esito = "..."; calcolato = ""; }

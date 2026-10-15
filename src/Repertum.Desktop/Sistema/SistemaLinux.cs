@@ -366,7 +366,7 @@ namespace Repertum
             var produttore = Decodifica(u.GetValueOrDefault("ID_VENDOR_ENC")) ?? (u.TryGetValue("ID_VENDOR", out x) ? x.Replace('_', ' ') : Leggi("/sys/block/" + v.Disco + "/device/vendor"));
             var modello = Decodifica(u.GetValueOrDefault("ID_MODEL_ENC")) ?? (u.TryGetValue("ID_MODEL", out x) ? x.Replace('_', ' ') : Leggi("/sys/block/" + v.Disco + "/device/model"));
             i.Modello = ((produttore ?? "") + " " + (modello ?? "")).Trim();
-            if (v.Disco.StartsWith("loop")) i.Modello = "Dispositivo loop (" + Leggi("/sys/block/" + v.Disco + "/loop/backing_file") + ")";
+            if (v.Disco.StartsWith("loop")) i.Modello = "Dispositivo loop (" + Path.GetFileName(Leggi("/sys/block/" + v.Disco + "/loop/backing_file") ?? "") + ")";
             i.Seriale = u.GetValueOrDefault("ID_SERIAL_SHORT");
             if (u.ContainsKey("ID_VENDOR_ID") && u.ContainsKey("ID_MODEL_ID")) i.VidPid = u["ID_VENDOR_ID"].ToUpperInvariant() + ":" + u["ID_MODEL_ID"].ToUpperInvariant();
             i.Interfaccia = u.TryGetValue("ID_BUS", out x) ? x.ToUpperInvariant() : v.Disco.StartsWith("loop") ? "loop" : null;

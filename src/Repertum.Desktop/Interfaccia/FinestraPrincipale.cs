@@ -43,7 +43,7 @@ namespace Repertum
         Banner banner, vBanner;
         readonly Dictionary<string, TextBlock> valori = new Dictionary<string, TextBlock>();
         CheckBox cTutti;
-        TextBlock lSelezione, sMsg, sProt;
+        TextBlock lSelezione, lTutti, sMsg, sProt;
         Button lDestinazione;
         TextBlock tDestinazione;
         DataGrid griglia, vGriglia;
@@ -179,10 +179,13 @@ namespace Repertum
             t.Children.Add(gruppo);
 
             var fSel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 2, 0, 4) };
-            cTutti = new CheckBox { Content = "Seleziona tutti i file", IsThreeState = true, IsEnabled = false, VerticalAlignment = VerticalAlignment.Center };
+            cTutti = new CheckBox { IsThreeState = true, IsEnabled = false, VerticalAlignment = VerticalAlignment.Center };
             cTutti.Click += (s, e) => { bool tutti = !voci.All(v => v.Selezionato); Seleziona(v => tutti); };
+            lTutti = new TextBlock { Text = "Seleziona tutti i file", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(1, 0, 0, 0), Foreground = Colori.Spento };
+            lTutti.PointerPressed += (s, e) => { if (cTutti.IsEnabled) { bool tutti = !voci.All(v => v.Selezionato); Seleziona(v => tutti); } };
             lSelezione = new TextBlock { Margin = new Thickness(18, 0, 0, 0), Foreground = Colori.Testo, VerticalAlignment = VerticalAlignment.Center };
-            fSel.Children.Add(cTutti);
+            fSel.Children.Add(Piccola(cTutti));
+            fSel.Children.Add(lTutti);
             fSel.Children.Add(lSelezione);
             Grid.SetRow(fSel, 2);
             t.Children.Add(fSel);
@@ -225,6 +228,12 @@ namespace Repertum
             Grid.SetRow(basso, 5);
             t.Children.Add(basso);
             return t;
+        }
+
+        // Le caselle di Fluent sono da 20 punti, quelle di Windows da 13: si rimpiccioliscono.
+        static Control Piccola(CheckBox c)
+        {
+            return new LayoutTransformControl { LayoutTransform = new ScaleTransform(0.68, 0.68), Child = c, VerticalAlignment = VerticalAlignment.Center };
         }
 
         static ProgressBar Barra()
@@ -273,7 +282,7 @@ namespace Repertum
                         TextAlignment = destra ? TextAlignment.Right : TextAlignment.Left
                     };
                     t.Bind(TextBlock.TextProperty, new Binding(percorso));
-                    if (mono) { t.FontFamily = Stile.Mono; t.FontSize = 12; }
+                    if (mono) { t.FontFamily = Stile.Mono; t.FontSize = 11; }
                     if (colore)
                     {
                         t.Bind(TextBlock.ForegroundProperty, new Binding("ColoreEsito"));
@@ -295,10 +304,13 @@ namespace Repertum
                 CanUserSort = false,
                 CellTemplate = new FuncDataTemplate<object>((o, ns) =>
                 {
-                    var c = new CheckBox { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0), Margin = new Thickness(6, 0, 0, 0) };
+                    var c = new CheckBox { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(0) };
                     c.Bind(CheckBox.IsCheckedProperty, new Binding("Sel") { Mode = BindingMode.TwoWay });
-                    c.Bind(InputElement.IsEnabledProperty, new Binding("Modificabile"));
-                    return c;
+                    // come la colonna ReadOnly di Windows: resta blu, ma non si cambia fuori dalla fase «pronto»
+                    c.Bind(InputElement.IsHitTestVisibleProperty, new Binding("Modificabile"));
+                    var p = Piccola(c);
+                    p.HorizontalAlignment = HorizontalAlignment.Center;
+                    return p;
                 }, true)
             };
         }
@@ -447,6 +459,7 @@ namespace Repertum
             fase = f;
             bool pronto = f == Fase.Pronto && calcoloCompleto;
             cTutti.IsEnabled = pronto && voci.Count > 0;
+            lTutti.Foreground = cTutti.IsEnabled ? Brushes.Black : Colori.Spento;
             foreach (var r in righeFile) r.Modificabile = f == Fase.Pronto;
             bSalva.Testo = f == Fase.Lavoro ? "Ferma" : TestoSalva();
             bSalva.Icona = f == Fase.Lavoro ? Icona.Ferma : Icona.Salva;

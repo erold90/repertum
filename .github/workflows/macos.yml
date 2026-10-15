@@ -101,7 +101,8 @@ jobs:
           P=$!
           attendi 'attivazione del blocco' 60 nel_registro "$R/istantanee" 'Protezione da scrittura USB attivata' || { diagnosi; exit 1; }
           sleep 2
-          hdiutil attach finta.dmg 2>&1 | tee attach.txt || true
+          # «-mount optional»: DiskArbitration prova a montarla, Repertum rifiuta, l'immagine resta agganciata
+          hdiutil attach -mount optional finta.dmg 2>&1 | tee attach.txt || true
           DEV=$(grep -oE '^/dev/disk[0-9]+' attach.txt | head -1)
           echo "immagine agganciata: $DEV"
           diskutil list "$DEV" || true

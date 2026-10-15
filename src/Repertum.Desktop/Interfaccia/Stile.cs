@@ -45,6 +45,15 @@ namespace Repertum
             r["TextControlForeground"] = Brushes.Black;
             r["TextControlForegroundFocused"] = Brushes.Black;
             r["TextControlForegroundPointerOver"] = Brushes.Black;
+            // tabelle: niente spazio riservato all'icona d'ordinamento, niente riquadro del fuoco
+            r["DataGridSortIconMinWidth"] = 0.0;
+            r["DataGridGridLinesBrush"] = B("#C8C8C8");
+            r["DataGridColumnHeaderBackgroundBrush"] = Brushes.White;
+            r["DataGridColumnHeaderHoveredBackgroundBrush"] = B("#D9EBF9");
+            r["DataGridColumnHeaderPressedBackgroundBrush"] = B("#BCDCF4");
+            r["DataGridColumnHeaderForegroundBrush"] = Brushes.Black;
+            r["DataGridCellFocusVisualPrimaryBrush"] = Brushes.Transparent;
+            r["DataGridCellFocusVisualSecondaryBrush"] = Brushes.Transparent;
 
             var s = app.Styles;
             Aggiungi(s, x => x.OfType<Window>(), (TemplatedControl.FontSizeProperty, 12.0), (TemplatedControl.ForegroundProperty, Brushes.Black));
@@ -71,7 +80,7 @@ namespace Repertum
             Aggiungi(s, x => x.OfType<DataGridRow>().Class(":selected").Template().OfType<Rectangle>().Name("BackgroundRectangle"),
                      (Shape.FillProperty, B("#CCE8FF")), (Visual.OpacityProperty, 1.0));
             Aggiungi(s, x => x.OfType<DataGridRow>().Class(":pointerover").Template().OfType<Rectangle>().Name("BackgroundRectangle"),
-                     (Shape.FillProperty, B("#E5F3FF")), (Visual.OpacityProperty, 1.0));
+                     (Shape.FillProperty, Brushes.Transparent), (Visual.OpacityProperty, 1.0));
             Aggiungi(s, x => x.OfType<DataGridRow>().Class(":selected").Class(":pointerover").Template().OfType<Rectangle>().Name("BackgroundRectangle"),
                      (Shape.FillProperty, B("#CCE8FF")), (Visual.OpacityProperty, 1.0));
             Aggiungi(s, x => x.OfType<DataGridCell>().Class(":focus").Template().OfType<Grid>().Name("FocusVisual"),
