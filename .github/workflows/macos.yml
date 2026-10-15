@@ -1,0 +1,195 @@
+name: macOS
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    paths: ['src/Repertum.Core/**', 'src/Repertum.Desktop/**', '.github/collaudo/**', '.github/workflows/macos.yml']
+  pull_request:
+    paths: ['src/Repertum.Core/**', 'src/Repertum.Desktop/**', '.github/collaudo/**', '.github/workflows/macos.yml']
+jobs:
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x64]
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      R: ${{ github.workspace }}/risultati
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Compilazione
+        run: |
+          dotnet publish src/Repertum.Desktop/Repertum.Desktop.csproj -c Release -r osx-${{ matrix.arch }} --self-contained \
+            -p:PublishSingleFile=true -o out --nologo -v minimal
+          ls -la out
+          sw_vers; uname -m
+
+      - name: Rosetta per la versione x64
+        if: matrix.arch == 'x64'
+        run: |
+          arch -x86_64 /usr/bin/true 2>/dev/null || sudo softwareupdate --install-rosetta --agree-to-license || true
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then echo "Rosetta presente"; else echo "Rosetta assente"; echo "SENZA_ROSETTA=1" >> "$GITHUB_ENV"; fi
+
+      - name: Pacchetto Repertum.app
+        run: |
+          set -e
+          V=$(sed -n 's/.*Numero = "\([0-9.]*\)".*/\1/p' src/Repertum.Core/Versione.cs)
+          APP=pacchetto/Repertum.app
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp out/Repertum out/*.dylib "$APP/Contents/MacOS/"
+          if [ -z "$SENZA_ROSETTA" ]; then out/Repertum --icona icona; else dotnet run --project src/Repertum.Desktop -c Release -- --icona "$PWD/icona"; fi
+          iconutil -c icns icona/Repertum.iconset -o "$APP/Contents/Resources/Repertum.icns"
+          sed "s/@VERSIONE@/$V/g" src/Repertum.Desktop/Pacchetti/Info.plist > "$APP/Contents/Info.plist"
+          plutil -lint "$APP/Contents/Info.plist"
+          codesign --force --deep -s - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          ditto -c -k --keepParent "$APP" "Repertum-macos-${{ matrix.arch }}.zip"
+          ls -la "$APP/Contents/MacOS" "Repertum-macos-${{ matrix.arch }}.zip"
+          mkdir -p "$R"; cp icona/repertum.png "$R/icona.png"
+          echo "EXE=$PWD/$APP/Contents/MacOS/Repertum" >> "$GITHUB_ENV"
+
+      - name: Anteprima con dati finti
+        if: env.SENZA_ROSETTA == ''
+        timeout-minutes: 4
+        run: |
+          set +e
+          "$EXE" --anteprima "$R/anteprima" &
+          P=$!
+          for i in $(seq 150); do kill -0 $P 2>/dev/null || break; sleep 1; done
+          if kill -0 $P 2>/dev/null; then kill $P; echo "anteprima bloccata"; exit 1; fi
+          wait $P || { echo "anteprima: codice $?"; cat "$TMPDIR/Repertum-errori.txt" 2>/dev/null; exit 1; }
+          ls -la "$R/anteprima"
+
+      - name: Chiavetta finta (immagine FAT32 creata con hdiutil)
+        if: env.SENZA_ROSETTA == ''
+        run: |
+          set -e
+          python3 .github/collaudo/chiavetta.py sorgente attesi.json
+          hdiutil create -size 128m -fs "MS-DOS FAT32" -volname FINTA -layout MBRSPUD finta.dmg
+          mkdir -p mnt
+          hdiutil attach finta.dmg -nobrowse -mountpoint "$PWD/mnt"
+          ditto --norsrc --noextattr --noqtn --noacl sorgente mnt
+          find mnt -type f | sort
+          hdiutil detach "$PWD/mnt"
+          shasum -a 256 finta.dmg | tee prima.txt
+
+      - name: Flusso reale (immagine agganciata dopo l'avvio)
+        if: env.SENZA_ROSETTA == ''
+        timeout-minutes: 10
+        run: |
+          set +e
+          attendi() { local d=$1 s=$2; shift 2; for i in $(seq $((s*2))); do if "$@"; then return 0; fi; sleep 0.5; done; echo "timeout: $d"; return 1; }
+          nel_registro() { grep -q "$2" "$1/registro.txt" 2>/dev/null; }
+          diagnosi() {
+            echo '--- registro'; cat "$R/istantanee/registro.txt" 2>/dev/null
+            echo '--- uscita del programma'; cat app.log 2>/dev/null
+            echo '--- errori imprevisti'; cat "$TMPDIR/Repertum-errori.txt" 2>/dev/null
+            echo '--- dischi'; diskutil list; mount
+            echo '--- diskarbitrationd'; log show --last 5m --predicate 'process == "diskarbitrationd"' --style compact 2>/dev/null | tail -60
+            screencapture -x "$R/zz-schermo.png" 2>/dev/null || true
+          }
+          REG=""; [ "${{ matrix.arch }}" = arm64 ] && REG="--registra $R/registrazione"
+          "$EXE" --automatico --test-dispositivi --istantanee "$R/istantanee" $REG > app.log 2>&1 &
+          P=$!
+          attendi 'attivazione del blocco' 60 nel_registro "$R/istantanee" 'Protezione da scrittura USB attivata' || { diagnosi; exit 1; }
+          sleep 2
+          hdiutil attach finta.dmg 2>&1 | tee attach.txt || true
+          DEV=$(grep -oE '^/dev/disk[0-9]+' attach.txt | head -1)
+          echo "immagine agganciata: $DEV"
+          diskutil list "$DEV" || true
+          attendi 'fine della copia' 240 nel_registro "$R/istantanee" 'File prodotti' || { diagnosi; kill $P; exit 1; }
+          sleep 3
+          hdiutil detach "$DEV" || hdiutil detach -force "$DEV"
+          echo 'immagine staccata: Repertum deve chiudersi da solo'
+          attendi 'chiusura del programma' 60 sh -c "! kill -0 $P 2>/dev/null" || { diagnosi; kill $P; exit 1; }
+          wait $P; C=$?
+          echo "codice d'uscita: $C"
+          echo '--- registro'; cat "$R/istantanee/registro.txt"
+          [ $C -eq 0 ] || { diagnosi; exit 1; }
+          grep -q 'Montaggio automatico di /dev/disk' "$R/istantanee/registro.txt" || echo "nota: nessun montaggio automatico da rifiutare"
+          grep -q 'SOLA LETTURA - ' "$R/istantanee/registro.txt" || { echo 'sola lettura non confermata'; exit 1; }
+          grep -q 'Callback di DiskArbitration rimossi' "$R/istantanee/registro.txt" || { echo 'pulizia non registrata'; exit 1; }
+
+      - name: Controlli (hash, copie, allegati, immagine intatta)
+        if: env.SENZA_ROSETTA == ''
+        run: |
+          set -e
+          shasum -a 256 finta.dmg | tee dopo.txt
+          if ! cmp -s prima.txt dopo.txt; then echo "L'IMMAGINE E' CAMBIATA"; exit 1; fi
+          echo "immagine identica prima e dopo: $(cut -d' ' -f1 dopo.txt)"
+          ACQ=$(ls -d "$HOME"/Repertum/*_FINTA | head -1)
+          echo "ACQ=$ACQ" >> "$GITHUB_ENV"
+          ls -la "$ACQ"
+          python3 .github/collaudo/controlla.py "$ACQ" attesi.json
+          (cd "$ACQ/File" && shasum -a 256 -c ../HASH.sha256)
+          # ogni file della chiavetta, letto dall'immagine agganciata in sola lettura
+          mkdir -p ro
+          hdiutil attach finta.dmg -readonly -nobrowse -noverify -mountpoint "$PWD/ro"
+          (cd ro && shasum -a 256 -c "$ACQ/HASH.sha256")
+          N=$(find ro -type f | wc -l | tr -d ' '); H=$(wc -l < "$ACQ/HASH.sha256" | tr -d ' ')
+          echo "file sull'immagine: $N, righe in HASH.sha256: $H"
+          hdiutil detach "$PWD/ro"
+          [ "$N" -eq "$H" ]
+          echo '--- RIEPILOGO'; cat "$ACQ/RIEPILOGO.txt"
+          echo '--- INVENTARIO'; cat "$ACQ/INVENTARIO.csv"
+          echo '--- LOG'; cat "$ACQ/LOG.txt"
+
+      - name: Verifica della cartella salvata (Repertum <cartella>)
+        if: env.SENZA_ROSETTA == ''
+        timeout-minutes: 5
+        run: |
+          set +e
+          REG=""; [ "${{ matrix.arch }}" = arm64 ] && REG="--registra $R/registrazione-verifica"
+          "$EXE" "$ACQ" --automatico --istantanee "$R/istantanee-verifica" $REG > verifica.log 2>&1 &
+          P=$!
+          for i in $(seq 120); do kill -0 $P 2>/dev/null || break; sleep 1; done
+          if kill -0 $P 2>/dev/null; then kill $P; cat "$R/istantanee-verifica/registro.txt"; echo 'verifica bloccata'; exit 1; fi
+          wait $P; C=$?
+          cat "$R/istantanee-verifica/registro.txt"
+          cat "$ACQ/VERIFICHE.txt"
+          [ $C -eq 0 ] && grep -q ' 0 alterati, 0 mancanti' "$R/istantanee-verifica/registro.txt" || exit 1
+
+      - name: DiskArbitration funziona ancora
+        if: env.SENZA_ROSETTA == ''
+        run: |
+          set -e
+          pgrep -x diskarbitrationd
+          hdiutil create -size 40m -fs "MS-DOS FAT32" -volname CONTROLLO -layout MBRSPUD controllo.dmg
+          hdiutil attach controllo.dmg | tee controllo.txt
+          sleep 2
+          mount | grep -q '/Volumes/CONTROLLO' && echo 'montaggio automatico di nuovo attivo'
+          hdiutil detach "$(grep -oE '^/dev/disk[0-9]+' controllo.txt | head -1)"
+
+      - name: Raccolta dei risultati
+        if: always()
+        run: |
+          mkdir -p "$R"
+          cp app.log verifica.log attach.txt "$R/" 2>/dev/null || true
+          if [ -n "$ACQ" ] && [ -d "$ACQ" ]; then mkdir -p "$R/acquisizione"; find "$ACQ" -maxdepth 1 -type f -exec cp {} "$R/acquisizione/" \;; fi
+          ls -R "$R" | head -80
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacchetto-macos-${{ matrix.arch }}
+          path: Repertum-macos-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.arch == 'arm64'
+        with:
+          name: schermate-macos
+          path: risultati
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && matrix.arch == 'x64'
+        with:
+          name: collaudo-macos-x64
+          path: risultati
