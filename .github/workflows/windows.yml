@@ -1,0 +1,191 @@
+name: Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['src/**', '.github/workflows/windows.yml']
+jobs:
+  app:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compilazione
+        shell: pwsh
+        run: |
+          dotnet build src/Repertum.Windows/Repertum.Windows.csproj -c Release -o out --nologo -v minimal
+          Get-Item out\Repertum.exe | Format-List Name, Length
+
+      - name: Anteprima con dati finti
+        shell: powershell
+        timeout-minutes: 4
+        run: |
+          $p = Start-Process out\Repertum.exe -ArgumentList '--anteprima','C:\anteprima' -PassThru
+          if (-not $p.WaitForExit(150000)) { $p.Kill(); throw 'anteprima bloccata' }
+          Get-ChildItem C:\anteprima | Format-Table Name, Length
+
+      - name: Chiavetta finta (VHD FAT32) con file di prova
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "create vdisk file=C:\finta.vhdx maximum=256 type=expandable`r`nselect vdisk file=C:\finta.vhdx`r`nattach vdisk`r`ncreate partition primary`r`nformat fs=fat32 quick label=FINTA`r`nassign letter=R`r`n" | Set-Content C:\dp.txt -Encoding ASCII
+          diskpart /s C:\dp.txt | Out-Null
+          New-Item -ItemType Directory 'R:\DVR\CH01' -Force | Out-Null
+          $nome = 'Foto ' + [char]0xE8 + ' gi' + [char]0xE0
+          New-Item -ItemType Directory ("R:\" + $nome) -Force | Out-Null
+          $r = New-Object Random 7
+          foreach ($x in @(@('R:\DVR\CH01\20250321_183000.dav', 40MB), @('R:\video registrato.mp4', 20MB), @(("R:\" + $nome + "\IMG_0001.JPG"), 1MB), @('R:\vuoto.dat', 0))) {
+            $b = New-Object byte[] ($x[1]); $r.NextBytes($b); [IO.File]::WriteAllBytes($x[0], $b)
+          }
+          'nota' | Set-Content 'R:\nota;con virgola.txt'
+          Get-ChildItem R:\ -Recurse -File -Force | Get-FileHash -Algorithm SHA256 | Format-Table Hash, Path -AutoSize | Out-String -Width 300
+          Dismount-DiskImage -ImagePath C:\finta.vhdx | Out-Null
+
+      - name: Flusso reale guidato (UI Automation + messaggi Windows)
+        shell: powershell
+        timeout-minutes: 10
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+          Add-Type -TypeDefinition @"
+          using System; using System.Text; using System.Runtime.InteropServices;
+          public static class W {
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, string l);
+            [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, int m, IntPtr w, StringBuilder l);
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, int m, IntPtr w, IntPtr l);
+            [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+            public static string Testo(IntPtr h) { var sb = new StringBuilder(65536); SendMessage(h, 0x000D, (IntPtr)65536, sb); return sb.ToString(); }
+            public delegate bool Enum(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, Enum f, IntPtr l);
+            public static IntPtr Cerca(IntPtr padre, string testo) {
+              IntPtr trovato = IntPtr.Zero;
+              EnumChildWindows(padre, (h, l) => { if (Testo(h) == testo) { trovato = h; return false; } return true; }, IntPtr.Zero);
+              return trovato;
+            }
+            public static string Elenco(IntPtr padre) {
+              var sb = new StringBuilder();
+              EnumChildWindows(padre, (h, l) => { var t = Testo(h); if (t.Length > 0) sb.AppendLine(t.Length > 80 ? t.Substring(0, 80) : t); return true; }, IntPtr.Zero);
+              return sb.ToString();
+            }
+          }
+          "@
+          $AE = [System.Windows.Automation.AutomationElement]
+          $TS = [System.Windows.Automation.TreeScope]
+          function Cond($prop, $val) { New-Object System.Windows.Automation.PropertyCondition($prop, $val) }
+          function Attendi($cosa, $sec, [scriptblock]$prova) {
+            $fine = (Get-Date).AddSeconds($sec)
+            while ((Get-Date) -lt $fine) { $r = & $prova; if ($r) { return $r }; Start-Sleep -Milliseconds 400 }
+            throw "timeout: $cosa"
+          }
+          # i controlli si cercano per testo fra le finestre figlie (Win32), non con UI Automation
+          function Finestra($p) { Attendi 'finestra principale' 30 { $p.Refresh(); if ($p.MainWindowHandle -ne [IntPtr]::Zero) { $p.MainWindowHandle } } }
+          function PerNome($nome, $sec = 30) {
+            Attendi $nome $sec { $h = [W]::Cerca($script:finestra, $nome); if ($h -ne [IntPtr]::Zero) { $h } }
+          }
+          function Maniglia($e) { [IntPtr]$e }
+          function Clic($e) { [void][W]::PostMessage((Maniglia $e), 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero) }
+          function Scrivi($e, $t) { [void][W]::SendMessage((Maniglia $e), 0x000C, [IntPtr]::Zero, $t) }
+          function Chiudi($p) {
+            [void][W]::PostMessage($script:finestra, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+            if (-not $p.WaitForExit(20000)) { throw 'il programma non si chiude' }
+          }
+          function Blocco { try { (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\StorageDevicePolicies' -Name WriteProtect -ErrorAction Stop).WriteProtect } catch { $null } }
+
+          function Diagnosi($dir) {
+            '--- testi delle finestre figlie:'
+            if ($script:finestra) { [W]::Elenco($script:finestra) }
+            '--- registro del programma:'
+            Get-Content (Join-Path $dir 'registro.txt') -ErrorAction SilentlyContinue
+            '--- errori imprevisti:'
+            Get-Content (Join-Path $env:TEMP 'Repertum-errori.txt') -ErrorAction SilentlyContinue
+            Add-Type -AssemblyName System.Drawing, System.Windows.Forms
+            $sc = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $bmp = New-Object System.Drawing.Bitmap $sc.Width, $sc.Height
+            [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($sc.Location, [System.Drawing.Point]::Empty, $sc.Size)
+            $bmp.Save((Join-Path $dir 'zz-schermo.png'))
+          }
+
+          # --- 1. copia: si collega la chiavetta e si preme un solo pulsante
+          $p = Start-Process out\Repertum.exe -ArgumentList '--istantanee','C:\istantanee' -PassThru
+          $script:procId = $p.Id
+          try {
+            $script:finestra = Finestra $p
+            $b = PerNome 'Salva copia e hash'
+            $apri = PerNome 'Apri cartella'
+            "aperto; protezione nel registro: [$(Blocco)]"
+            Start-Sleep 2
+            Mount-DiskImage -ImagePath C:\finta.vhdx -Access ReadOnly | Out-Null
+            'chiavetta finta collegata in sola lettura'
+            Attendi 'fine della lettura' 120 { [W]::IsWindowEnabled((Maniglia $b)) } | Out-Null
+            'lettura terminata'
+            Clic $b
+            'salvataggio avviato'
+            Attendi 'fine della copia' 120 { [W]::IsWindowEnabled((Maniglia $apri)) } | Out-Null
+            "pulsante: [$([W]::Testo((Maniglia $b)))]"
+            'copia terminata'
+            Start-Sleep 2
+            Dismount-DiskImage -ImagePath C:\finta.vhdx | Out-Null
+            'chiavetta finta scollegata'
+            Attendi 'ritorno in attesa' 30 { -not [W]::IsWindowEnabled((Maniglia $b)) } | Out-Null
+            Start-Sleep 2
+          } catch { Diagnosi 'C:\istantanee'; throw }
+          Chiudi $p
+          "chiuso; protezione nel registro dopo la chiusura: [$(Blocco)]"
+          if ($null -ne (Blocco)) { throw 'protezione rimasta accesa' }
+          '--- registro:'
+          Get-Content C:\istantanee\registro.txt
+
+          # --- 2. verifica: Repertum.exe <cartella> parte da solo
+          $acq = (Get-ChildItem C:\Repertum -Directory | Select-Object -First 1).FullName
+          $p = Start-Process out\Repertum.exe -ArgumentList ('"' + $acq + '"'),'--istantanee','C:\istantanee-verifica' -PassThru
+          $script:procId = $p.Id
+          try {
+            $script:finestra = Finestra $p
+            Attendi 'fine della verifica' 120 { Select-String -Path C:\istantanee-verifica\registro.txt -Pattern 'Verifica di' -Quiet -ErrorAction SilentlyContinue } | Out-Null
+          } catch { Diagnosi 'C:\istantanee-verifica'; throw }
+          Start-Sleep 1
+          '--- registro della verifica:'
+          Get-Content C:\istantanee-verifica\registro.txt
+          Chiudi $p
+          "chiuso; protezione nel registro: [$(Blocco)]"
+          if ($null -ne (Blocco)) { throw 'protezione rimasta accesa' }
+          if (-not (Select-String -Path C:\istantanee-verifica\registro.txt -Pattern ' 0 alterati, 0 mancanti' -Quiet)) { throw 'verifica non integra' }
+
+      - name: Controllo degli allegati
+        shell: powershell
+        if: always()
+        run: |
+          $acq = (Get-ChildItem C:\Repertum -Directory -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if (-not $acq) { 'nessuna acquisizione'; exit 1 }
+          Get-ChildItem $acq -Recurse | Format-Table FullName, Length, IsReadOnly -AutoSize | Out-String -Width 300
+          Mount-DiskImage -ImagePath C:\finta.vhdx -Access ReadOnly | Out-Null
+          Start-Sleep 3
+          $L = (Get-DiskImage C:\finta.vhdx | Get-Disk | Get-Partition | Get-Volume).DriveLetter + ':\'
+          $err = 0
+          foreach ($riga in (Get-Content (Join-Path $acq 'HASH.sha256') -Encoding UTF8)) {
+            $h, $n = $riga -split '  ', 2
+            $v = (Get-FileHash -LiteralPath (Join-Path $L $n) -Algorithm SHA256).Hash.ToLower()
+            $c = (Get-FileHash -LiteralPath (Join-Path (Join-Path $acq 'File') $n) -Algorithm SHA256).Hash.ToLower()
+            if ($v -ne $h -or $c -ne $h) { $err++; "DIVERSO  $n" } else { "OK  $n" }
+          }
+          '--- RIEPILOGO'; Get-Content (Join-Path $acq 'RIEPILOGO.txt') -Encoding UTF8
+          '--- LOG'; Get-Content (Join-Path $acq 'LOG.txt') -Encoding UTF8
+          '--- INVENTARIO'; Get-Content (Join-Path $acq 'INVENTARIO.csv') -Encoding UTF8
+          '--- VERIFICHE'; Get-Content (Join-Path $acq 'VERIFICHE.txt') -Encoding UTF8
+          if ($err) { exit 1 }
+
+      - name: Raccolta dei risultati
+        if: always()
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory risultati -Force | Out-Null
+          Copy-Item out\Repertum.exe risultati\ -ErrorAction SilentlyContinue
+          foreach ($d in 'C:\anteprima','C:\istantanee','C:\istantanee-verifica','C:\Repertum') { if (Test-Path $d) { Copy-Item $d risultati\ -Recurse -Force } }
+          Get-ChildItem risultati -Recurse | Select-Object -First 50 | Format-Table FullName, Length -AutoSize | Out-String -Width 250
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repertum-windows
+          path: risultati
