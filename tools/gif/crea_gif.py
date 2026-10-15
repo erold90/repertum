@@ -11,6 +11,7 @@ cosi' la registrazione resta fedele e la GIF si puo' rifare con altri tempi.
 Uso:
     python3 crea_gif.py <fotogrammi> <uscita.gif> [--larghezza 880]
                         [--pausa-max 1600] [--fine 3500] [--velocita 1.0]
+                        [--da f00002.png] [--fino-a f00063.png]
 """
 import argparse
 import csv
@@ -116,9 +117,16 @@ def main():
     a.add_argument("--pausa-max", type=int, default=1600, help="durata massima di un fotogramma fermo (ms)")
     a.add_argument("--fine", type=int, default=3500, help="durata dell'ultimo fotogramma (ms)")
     a.add_argument("--velocita", type=float, default=1.0, help=">1 accelera le parti in movimento")
+    a.add_argument("--da", help="primo fotogramma da usare (nome del PNG)")
+    a.add_argument("--fino-a", help="ultimo fotogramma da usare (nome del PNG)")
     o = a.parse_args()
 
-    fotogrammi = componi(leggi(o.fotogrammi), o.pausa_max, o.fine, o.velocita)
+    righe = leggi(o.fotogrammi)
+    nomi = [os.path.basename(r["file"]) for r in righe]
+    inizio = nomi.index(o.da) if o.da else 0
+    fine = nomi.index(o.fino_a) + 1 if o.fino_a else len(righe)
+    righe = righe[inizio:fine]
+    fotogrammi = componi(righe, o.pausa_max, o.fine, o.velocita)
     rgb = []
     for img, ms in fotogrammi:
         img = img.convert("RGB")

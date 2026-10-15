@@ -22,8 +22,11 @@ semplice o più sicuro per chi lo usa.
 | Piattaforma | Requisiti | Comando |
 |---|---|---|
 | Windows | Windows 10/11, [.NET SDK](https://dotnet.microsoft.com/download) 8 o successivo | `dotnet build src/Repertum.Windows -c Release -o out` |
-| macOS | .NET SDK 8 | `dotnet publish src/Repertum.Desktop -c Release -r osx-arm64` (oppure `osx-x64`) |
-| Linux | .NET SDK 8 | `dotnet publish src/Repertum.Desktop -c Release -r linux-x64` |
+| macOS | .NET SDK 8 | `dotnet publish src/Repertum.Desktop -c Release -r osx-arm64 --self-contained -p:PublishSingleFile=true -o out` (oppure `osx-x64`) |
+| Linux | .NET SDK 8 | `dotnet publish src/Repertum.Desktop -c Release -r linux-x64 --self-contained -p:PublishSingleFile=true -o out` |
+
+Come si costruiscono `Repertum.app` e il pacchetto Linux lo mostrano i passi «Pacchetto» di
+`.github/workflows/macos.yml` e `linux.yml`.
 
 L'app Windows usa WinForms su .NET Framework 4.8, che Windows ha già: per questo
 `Repertum.exe` è un file unico da circa 150 KB. Il Core è scritto in C# 7.3 perché lo
@@ -49,12 +52,19 @@ prodotti vengono confrontati con quelli calcolati dagli strumenti del sistema (`
 
 ## Le GIF della documentazione
 
-Le GIF in `docs/` non sono montate a mano: le registra il workflow `GIF della documentazione`
-mentre Repertum lavora davvero. Su Windows il puntatore è quello vero; su macOS e Linux è
-sintetico. `tools/gif/crea_gif.py` le compone a partire dai fotogrammi e da `frames.csv`:
+Le GIF in `docs/` non sono montate a mano: vengono da registrazioni di Repertum mentre lavora
+davvero.
+
+- **Windows**: il workflow `GIF della documentazione` muove il puntatore vero, clicca e fotografa
+  la finestra (`tools/gif/registra-windows.ps1`).
+- **macOS e Linux**: il collaudo avvia Repertum con `--automatico --registra`, e i fotogrammi
+  finiscono negli artifact `schermate-macos` e `schermate-linux`. Il puntatore è sintetico.
+
+`tools/gif/crea_gif.py` compone la GIF a partire dai fotogrammi e da `frames.csv`, disegnando il
+puntatore e l'onda del clic:
 
 ```sh
-python3 tools/gif/crea_gif.py <cartella-fotogrammi> docs/windows.gif
+python3 tools/gif/crea_gif.py <cartella-fotogrammi> docs/macos.gif --da f00002.png --fino-a f00064.png
 ```
 
 ## Messaggi dei commit
