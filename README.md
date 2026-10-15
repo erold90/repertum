@@ -210,8 +210,9 @@ Meglio saperli prima:
   in sola lettura. Su Linux i file di un file system ext4 che l'utente non ha il permesso di leggere
   risultano «NON LEGGIBILE».
 - **Il collaudo automatico usa chiavette simulate**: un disco virtuale su Windows, un'immagine disco
-  su macOS, un dispositivo loop su Linux. Prima di usarlo su qualcosa che conta, fai una prova con
-  una chiavetta qualunque e controlla che compaia «Sola lettura: Sì, verificata».
+  su macOS, un dispositivo loop su Linux. Con una chiavetta USB vera è stato provato finora solo
+  macOS (vedi sotto). Prima di usarlo su qualcosa che conta, fai una prova con una chiavetta
+  qualunque e controlla che compaia «Sola lettura: Sì, verificata».
 - L'interfaccia è solo in italiano.
 
 Repertum non è uno strumento certificato. È distribuito con licenza MIT, senza garanzie: verifica che
@@ -232,6 +233,26 @@ Ogni modifica passa da GitHub Actions su Windows, macOS e Linux:
 
 Le GIF di questa pagina vengono dallo stesso collaudo: le registra il workflow
 [`GIF della documentazione`](.github/workflows/gif.yml).
+
+
+### Prova con una chiavetta vera (macOS, 15/10/2026)
+
+Chiavetta USB da 2 GB, FAT32, 1.453 file, su un MacBook Pro Intel con macOS 15. L'impronta
+SHA-256 del **disco intero** (2.003.795.968 byte, letti con `/usr/libexec/authopen`) è stata
+calcolata con la chiavetta smontata, prima e dopo il lavoro di Repertum:
+
+```
+prima  3a7a25f2dc48ede445e70a09467126fd3074854693f6dd31843d0c78b6f599cc
+dopo   3a7a25f2dc48ede445e70a09467126fd3074854693f6dd31843d0c78b6f599cc
+```
+
+Nel frattempo Repertum ha montato la chiavetta in sola lettura (`read-only, noowners`), ha
+calcolato gli hash e copiato i 1.453 file, con hash uguali a quelli di `shasum -a 256` sia sulla
+chiavetta sia sulle copie.
+
+Per confronto: fra due prove la chiavetta è stata collegata una volta senza Repertum, e il normale
+montaggio di macOS ci ha scritto tre file nuovi in `.fseventsd/`. È proprio quello che il blocco
+impedisce.
 
 ## Struttura
 
